@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Low-Poly Arena</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+
+  <script>
+    // If the game cannot start, show a clear message instead of a stuck "Loading..." button.
+    window.__lpaFail = function (msg) {
+      var box = document.getElementById('loadError');
+      if (!box) return;
+      box.textContent = msg;
+      box.classList.remove('hidden');
+      var ids = ['playBtn', 'joinBtn'];
+      for (var i = 0; i < ids.length; i++) {
+        var btn = document.getElementById(ids[i]);
+        if (btn) { btn.disabled = true; if (ids[i] === 'joinBtn') btn.textContent = 'Cannot start'; }
+      }
+    };
+    window.addEventListener('error', function (ev) {
+      if (!window.__lpaReady && ev.message) window.__lpaFail('Something went wrong while starting: ' + ev.message);
+    });
+    setTimeout(function () {
+      if (!window.__lpaReady) window.__lpaFail('The game is taking too long to load. It needs an internet connection to download Three.js (the 3D library) the first time. Check your connection and refresh the page.');
+    }, 15000);
+  </script>
+
+  <!-- Three.js is loaded from a CDN (needs an internet connection the first time). -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+
+  <!-- Code shared with the server: maps, weapon stats and movement/collision. -->
+  <script src="/shared/physics.js"></script>
+  <script src="/shared/weapons.js"></script>
+  <script src="/shared/maps.js"></script>
+  <script src="/shared/combat.js"></script>
+  <script src="/shared/grenades.js"></script>
+  <script src="/shared/abilities.js"></script>
+  <script src="/shared/zilla.js"></script>
+
+  <script type="module" src="js/main.js"
+          onerror="window.__lpaFail('Could not load the game scripts. Make sure you are online (Three.js downloads from a CDN) and that you opened the address printed by npm start.')"></script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- ===================== In-game HUD ===================== -->
+  <div id="hud" class="hidden">
+    <div id="topleft">
+      <canvas id="minimap" width="168" height="168"></canvas>
+      <div id="kd"></div>
+      <div id="stats"></div>
+    </div>
+
+    <div id="netnote"></div>
+
+    <div id="feed"></div>
+
+    <div id="crosshair">
+      <i class="ch ch-t"></i><i class="ch ch-b"></i><i class="ch ch-l"></i><i class="ch ch-r"></i><i class="ch ch-dot"></i>
+    </div>
+    <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+    <div id="scope" class="hidden"><i class="sl sl-h"></i><i class="sl sl-v"></i><i class="sl-dot"></i></div>
+    <div id="reloadbar"><div id="reloadfill"></div></div>
+    <div id="notice"></div>
+    <div id="vignette"></div>
+    <div id="grenwarn"></div>
+    <div id="speedfx"></div>
+    <div id="healfx"></div>
+    <div id="smokefx"></div>
+    <div id="flashfx"></div>
+    <div id="floaters"></div>
+
+    <div id="deathscreen" class="hidden">
+      <div class="dtitle">ELIMINATED</div>
+      <div id="deathby"></div>
+      <div id="deathtimer"></div>
+    </div>
+
+    <div id="scoreboard" class="hidden">
+      <table>
+        <thead><tr><th>#</th><th>Player</th><th>Kills</th><th>Deaths</th></tr></thead>
+        <tbody id="sbbody"></tbody>
+      </table>
+    </div>
+
+    <div id="healthbox">
+      <div class="label">HEALTH</div>
+      <div class="hpnum"><span id="hpnum">100</span></div>
+      <div class="bar"><div id="hpfill"></div></div>
+    </div>
+
+    <div id="abilbox">
+      <div id="abilring"><span id="abilkey">F</span></div>
+      <div class="abiltext"><span id="abilname">Dash</span><span id="abilstate">READY</span></div>
+    </div>
+    <div id="abilfx"></div>
+    <div id="slotbar"></div>
+
+    <div id="grenbox">
+      <span id="grenkey">G</span>
+      <span id="grenname">Frag</span>
+      <span id="grenpips"></span>
+      <span id="grenregen"></span>
+    </div>
+
+    <div id="zbox" hidden>
+      <div class="zrow" id="zfire"><span class="zk">LMB</span><span class="zn">FIRE BREATH</span><span class="zbar"><i></i></span></div>
+      <div class="zrow" id="zgrab"><span class="zk">RMB</span><span class="zn">GRAB AND EAT</span><span class="zbar"><i></i></span></div>
+      <div class="zrow" id="zstomp"><span class="zk" id="zstompkey">F</span><span class="zn">STOMP</span><span class="zbar"><i></i></span></div>
+      <div class="zhint">SPACE: HIGH JUMP</div>
+    </div>
+    <div id="zboss" hidden><div class="zbn"><span id="zbname">GODZILLA</span><span id="zbhp">400</span></div><div class="zbbar"><i id="zbfill"></i></div></div>
+    <div id="ammobox">
+      <div class="wname"><span id="wrarity"></span><span id="wname">AR-7</span></div>
+      <div class="ammo"><span id="ammomag">30</span><span class="slash">/</span><span id="ammores">120</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== Start / pause menu ===================== -->
+  <div id="overlay">
+    <div class="bgshapes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="panel">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <polygon points="32,4 58,19 58,45 32,60 6,45 6,19" fill="#1d4ed8"/>
+          <polygon points="32,4 58,19 32,32" fill="#60a5fa"/>
+          <polygon points="32,32 58,19 58,45" fill="#2563eb"/>
+          <polygon points="32,32 58,45 32,60" fill="#1e40af"/>
+          <polygon points="32,32 32,60 6,45" fill="#3b82f6"/>
+          <polygon points="32,32 6,45 6,19" fill="#2f6fe8"/>
+          <polygon points="32,4 32,32 6,19" fill="#93c5fd"/>
+        </svg>
+        <div class="logo">LOW-POLY <span>ARENA</span></div>
+        <div class="subtitle">Container Yard <b>/</b> up to 4 players</div>
+      </div>
+
+      <div id="loadError" class="error hidden"></div>
+
+      <div class="joinrow">
+        <input id="nameInput" type="text" maxlength="14" placeholder="Your name" autocomplete="off" spellcheck="false">
+        <button id="joinBtn" class="btn primary" disabled>Loading...</button>
+      </div>
+      <div class="altrow">
+        <button id="loadoutBtn" class="btn ghost" disabled>Loadout</button>
+        <button id="playBtn" class="btn ghost" disabled>Practice alone</button>
+        <button id="leaveBtn" class="btn ghost hidden">Leave game</button>
+      </div>
+      <div class="hint" id="playHint">Join the room to play with friends (up to 4 players), or practice alone on the shooting range.</div>
+
+      <div class="cols">
+        <section class="card">
+          <h3><span class="dot"></span>Controls <span class="kb-sub">click a key to change it</span></h3>
+          <div id="kbNote" class="kb-note"></div>
+          <div id="keybinds" class="kb-list"></div>
+          <table class="keys fixed">
+            <tr><td>Switch weapon</td><td><kbd>Mouse wheel</kbd></td></tr>
+            <tr><td>Throw grenade (alternative)</td><td><kbd>4</kbd> (hold to aim, release to throw)</td></tr>
+            <tr><td>Pause</td><td><kbd>Esc</kbd></td></tr>
+            <tr><td>Bunny hop (melee out)</td><td>crouch + jump + sprint together, moving forward</td></tr>
+            <tr class="practice"><td>Practice only: take damage</td><td><kbd>H</kbd></td></tr>
+            <tr class="practice"><td>Practice only: refill ammo</td><td><kbd>B</kbd></td></tr>
+          </table>
+        </section>
+
+        <section class="card">
+          <h3><span class="dot"></span>Settings</h3>
+          <label class="setting">
+            <span>Mouse sensitivity</span>
+            <input type="range" id="setSens" min="0.2" max="3" step="0.05">
+            <output id="outSens"></output>
+          </label>
+          <label class="setting">
+            <span>Field of view</span>
+            <input type="range" id="setFov" min="70" max="110" step="1">
+            <output id="outFov"></output>
+          </label>
+          <label class="setting">
+            <span>Master volume</span>
+            <input type="range" id="setVol" min="0" max="100" step="1">
+            <output id="outVol"></output>
+          </label>
+          <div class="setting">
+            <span>Graphics quality</span>
+            <div class="seg" id="setQuality">
+              <button data-q="low">Low</button>
+              <button data-q="medium">Medium</button>
+              <button data-q="high">High</button>
+            </div>
+          </div>
+          <div class="hint small">Low renders at a lower resolution. High adds shadows. Try Low if the game feels slow.</div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== Loadout screen ===================== -->
+  <div id="loadout" class="hidden">
+    <div class="lo-panel">
+      <div class="lo-head">
+        <h2>Loadout</h2>
+        <div class="lo-sub">Everything is unlocked for testing. Click a weapon to equip it.</div>
+        <button id="loDone" class="btn primary">Done</button>
+      </div>
+      <div id="loNote" class="lo-note hidden"></div>
+      <div class="lo-body">
+        <div class="lo-cols">
+          <section class="lo-col" data-slot="primary"><h4>Primary</h4><div class="lo-list"></div></section>
+          <section class="lo-col" data-slot="secondary"><h4>Secondary</h4><div class="lo-list"></div></section>
+          <section class="lo-col" data-slot="melee"><h4>Melee</h4><div class="lo-list"></div></section>
+          <section class="lo-col" data-slot="grenade"><h4>Grenade</h4><div class="lo-list"></div></section>
+          <section class="lo-col" data-slot="ability"><h4>Ability</h4><div class="lo-list"></div></section>
+        </div>
+        <aside class="lo-side">
+          <canvas id="loPreview" width="440" height="260"></canvas>
+          <div class="lo-hint">Drag to turn it around</div>
+          <div class="lo-title"><span id="loName"></span><span id="loRarity"></span></div>
+          <div id="loInfo" class="lo-info"></div>
+          <div id="loStats" class="lo-stats"></div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <noscript><div class="noscript">This game needs JavaScript turned on.</div></noscript>
+</body>
+</html>
